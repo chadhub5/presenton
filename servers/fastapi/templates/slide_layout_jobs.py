@@ -9,6 +9,7 @@ Note: state lives in this process only (single uvicorn worker in the shipped sta
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -39,6 +40,7 @@ class _JobRecord:
 _jobs: dict[str, _JobRecord] = {}
 _lock = asyncio.Lock()
 _MAX_JOBS = 256
+LOGGER = logging.getLogger(__name__)
 
 
 def _http_exception_message(exc: HTTPException) -> str:
@@ -64,6 +66,7 @@ async def _prune_if_needed() -> None:
 
 async def start_slide_layout_job(
     work: Callable[[], Awaitable[str]],
+    debug_label: str = "",
 ) -> str:
     await _prune_if_needed()
     job_id = str(uuid.uuid4())
@@ -71,6 +74,7 @@ async def start_slide_layout_job(
         _jobs[job_id] = _JobRecord()
 
     async def _runner() -> None:
+        LOGGER.info("[slide-layout-job] started job_id=%s label=%s", job_id, debug_label)
         try:
             react = await work()
             async with _lock:
@@ -78,13 +82,31 @@ async def start_slide_layout_job(
                 if rec:
                     rec.status = "complete"
                     rec.react_component = react
+                    LOGGER.info(
+                        "[slide-layout-job] completed job_id=%s label=%s chars=%d",
+                        job_id,
+                        debug_label,
+                        len(react or ""),
+                    )
         except HTTPException as exc:
             async with _lock:
                 rec = _jobs.get(job_id)
                 if rec:
                     rec.status = "failed"
                     rec.error = _http_exception_message(exc)[:4000]
+                    LOGGER.error(
+                        "[slide-layout-job] failed job_id=%s label=%s status=%d error=%s",
+                        job_id,
+                        debug_label,
+                        exc.status_code,
+                        rec.error,
+                    )
         except asyncio.CancelledError:
+            LOGGER.warning(
+                "[slide-layout-job] cancelled job_id=%s label=%s",
+                job_id,
+                debug_label,
+            )
             raise
         except Exception as exc:
             async with _lock:
@@ -93,6 +115,12 @@ async def start_slide_layout_job(
                     rec.status = "failed"
                     msg = str(exc).strip() or exc.__class__.__name__
                     rec.error = msg[:4000]
+                    LOGGER.error(
+                        "[slide-layout-job] failed job_id=%s label=%s error=%s",
+                        job_id,
+                        debug_label,
+                        rec.error,
+                    )
 
     asyncio.create_task(_runner())
     return job_id

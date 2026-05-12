@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Awaitable, Callable, Optional
 
 from fastapi import HTTPException
@@ -19,6 +20,8 @@ SUPPORTED_TEMPLATE_PROVIDERS = (
     LLMProvider.AZURE,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 
 def _exception_message(exc: Exception) -> str:
     if isinstance(exc, HTTPException):
@@ -30,6 +33,13 @@ def _exception_message(exc: Exception) -> str:
     else:
         message = str(exc) or exc.__class__.__name__
     return " ".join(message.split())[:500]
+
+
+def _preview_text(value: str, *, max_chars: int = 350) -> str:
+    compact = value.replace("\n", "\\n")
+    if len(compact) <= max_chars:
+        return compact
+    return f"{compact[:max_chars]}..."
 
 
 def _unsupported_template_provider_message() -> str:
@@ -81,6 +91,7 @@ async def _call_template_provider_with_llmai(
     image_bytes: Optional[bytes] = None,
     media_type: str = "image/png",
 ) -> str:
+    LOGGER.info("[template-llm] model=%s request-started", model)
     client = get_client(config=get_llm_config())
     response = await asyncio.to_thread(
         client.generate,
@@ -101,6 +112,12 @@ async def _call_template_provider_with_llmai(
     output_text = extract_text(response.content) or ""
     if not output_text:
         raise HTTPException(status_code=500, detail="No output from template provider")
+    LOGGER.info(
+        "[template-llm] model=%s response chars=%d preview=%s",
+        model,
+        len(output_text),
+        _preview_text(output_text),
+    )
     return output_text
 
 
@@ -111,17 +128,49 @@ async def _run_template_llm_with_retries(
 ) -> str:
     last_exception: Optional[Exception] = None
 
-    for _ in range(1, MAX_ATTEMPTS_PER_PROVIDER + 1):
+    for attempt in range(1, MAX_ATTEMPTS_PER_PROVIDER + 1):
+        LOGGER.info(
+            "[template-llm] provider=%s attempt=%d/%d",
+            provider_label,
+            attempt,
+            MAX_ATTEMPTS_PER_PROVIDER,
+        )
         try:
             response_text = await call()
             if response_text:
+                LOGGER.info(
+                    "[template-llm] provider=%s attempt=%d succeeded chars=%d",
+                    provider_label,
+                    attempt,
+                    len(response_text),
+                )
                 return response_text
             raise ValueError("No output from template generation provider")
         except HTTPException as exc:
             if 400 <= exc.status_code < 500:
+                LOGGER.error(
+                    "[template-llm] provider=%s attempt=%d hard-failed status=%d detail=%s",
+                    provider_label,
+                    attempt,
+                    exc.status_code,
+                    _exception_message(exc),
+                )
                 raise exc
+            LOGGER.warning(
+                "[template-llm] provider=%s attempt=%d failed status=%d detail=%s",
+                provider_label,
+                attempt,
+                exc.status_code,
+                _exception_message(exc),
+            )
             last_exception = exc
         except Exception as exc:
+            LOGGER.warning(
+                "[template-llm] provider=%s attempt=%d failed error=%s",
+                provider_label,
+                attempt,
+                _exception_message(exc),
+            )
             last_exception = exc
 
     if isinstance(last_exception, HTTPException):

@@ -108,8 +108,9 @@ const EachSlide: React.FC<EachSlideProps> = ({
   } = useSlideEdit(slide, index, onSlideUpdate, setSlides);
 
   // Handle retry slide
-  const handleRetrySlide = () => {
-    retrySlide(index);
+  const handleRetrySlide = (targetIndex?: number) => {
+    const resolvedIndex = typeof targetIndex === "number" ? targetIndex : index;
+    retrySlide(resolvedIndex);
   };
 
   const closeEditPrompt = () => {
@@ -371,7 +372,7 @@ const EachSlide: React.FC<EachSlideProps> = ({
             {/* Re-Construct Button */}
             <ToolTip content="Re-Design this slide">
               <button
-                onClick={handleRetrySlide}
+                onClick={() => handleRetrySlide()}
                 disabled={!isSlideReady}
                 className={`
                       inline-flex items-center gap-2 px-4 py-2 text-sm font-medium

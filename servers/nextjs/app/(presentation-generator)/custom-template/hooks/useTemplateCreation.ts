@@ -267,6 +267,10 @@ export const useTemplateCreation = () => {
         retry: boolean = false,
         _isAutoRetry: boolean = false
     ): Promise<SlideLayoutResponse | null> => {
+        const slideNumber = slideIndex + 1;
+        console.info(
+            `[template-layout] start template=${templateId} slide=${slideNumber} autoAdvance=${autoAdvance} retry=${retry} autoRetry=${_isAutoRetry}`
+        );
         // Mark slide as processing
         setSlides(prev => prev.map((s, i) =>
             i === slideIndex ? { ...s, processing: true, error: undefined } : s
@@ -292,11 +296,16 @@ export const useTemplateCreation = () => {
                 `Failed to start layout job for slide ${slideIndex + 1}`
             );
             const jobId = startData.job_id as string;
+            console.info(
+                `[template-layout] job-started template=${templateId} slide=${slideNumber} jobId=${jobId}`
+            );
 
-            const pollMs = 2000;
+            const pollMs = 5000;
             const maxWaitMs = 45 * 60 * 1000;
             const deadline = Date.now() + maxWaitMs;
             let data: { react_component: string } | undefined;
+            let pollCount = 0;
+            let lastStatus: string | null = null;
 
             while (Date.now() < deadline) {
                 const statusResponse = await fetch(
@@ -307,11 +316,31 @@ export const useTemplateCreation = () => {
                     statusResponse,
                     `Failed to check layout job for slide ${slideIndex + 1}`
                 );
-                if (statusData.status === "complete" && statusData.react_component) {
-                    data = { react_component: statusData.react_component };
+                pollCount += 1;
+                const status = String(statusData.status ?? "unknown");
+                if (status !== lastStatus || pollCount % 3 === 0) {
+                    console.info(
+                        `[template-layout] poll template=${templateId} slide=${slideNumber} jobId=${jobId} count=${pollCount} status=${status} chars=${(statusData.react_component ?? "").length} error=${statusData.error ?? ""}`
+                    );
+                    lastStatus = status;
+                }
+                if (statusData.status === "complete") {
+                    const code = (statusData.react_component ?? "").trim();
+                    if (!code) {
+                        throw new Error(
+                            "Layout job reported complete but returned empty TSX. The model output may not match the expected format (see server logs). Try Re-Construct."
+                        );
+                    }
+                    console.info(
+                        `[template-layout] complete template=${templateId} slide=${slideNumber} jobId=${jobId} codeChars=${code.length} preview=${code.slice(0, 220).replace(/\n/g, "\\n")}`
+                    );
+                    data = { react_component: code };
                     break;
                 }
                 if (statusData.status === "failed") {
+                    console.error(
+                        `[template-layout] failed template=${templateId} slide=${slideNumber} jobId=${jobId} error=${statusData.error ?? ""}`
+                    );
                     throw new Error(
                         statusData.error ||
                             `Layout generation failed for slide ${slideIndex + 1}`
@@ -350,6 +379,9 @@ export const useTemplateCreation = () => {
                 if (autoAdvance) {
                     const nextIndex = slideIndex + 1;
                     if (nextIndex < newSlides.length && !newSlides[nextIndex].processed) {
+                        console.info(
+                            `[template-layout] queue-next template=${templateId} nextSlide=${nextIndex + 1} fromSlide=${slideNumber}`
+                        );
                         setTimeout(() => {
                             createSlideLayout(templateId, nextIndex, true);
                         }, 500);
@@ -379,11 +411,16 @@ export const useTemplateCreation = () => {
         } catch (error) {
             // Auto-retry once on failure before showing error
             if (!_isAutoRetry) {
-                console.log(`Auto-retrying slide ${slideIndex + 1} after API failure...`);
+                console.warn(
+                    `[template-layout] auto-retry template=${templateId} slide=${slideNumber} reason=${error instanceof Error ? error.message : "unknown"}`
+                );
                 return createSlideLayout(templateId, slideIndex, autoAdvance, true, true);
             }
 
             const errorMessage = error instanceof Error ? error.message : "Layout creation failed";
+            console.error(
+                `[template-layout] terminal-error template=${templateId} slide=${slideNumber} error=${errorMessage}`
+            );
 
             // Mark slide with error
             setSlides(prev => {
@@ -417,6 +454,9 @@ export const useTemplateCreation = () => {
     // Reconstruct a single slide (no auto-advance)
     const retrySlide = useCallback((slideIndex: number) => {
         if (state.templateId) {
+            console.info(
+                `[template-layout] manual-retry template=${state.templateId} slide=${slideIndex + 1}`
+            );
             // Pass false for autoAdvance to only reconstruct this specific slide
             createSlideLayout(state.templateId, slideIndex, false, true);
         }

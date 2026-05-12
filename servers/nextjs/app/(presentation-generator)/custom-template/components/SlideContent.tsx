@@ -43,10 +43,19 @@ const SlideContent = memo(({ slide, data, compiledLayout, retrySlide }: SlideCon
 
   if (!slide?.react) return null;
   if (!module) {
+    const retryIndex = Math.max(0, Number(slide.slide_number ?? 1) - 1);
     return (
       <div className="w-full aspect-[16/9] h-[720px] bg-red-50 text-red-700 p-4 rounded border border-red-200 text-sm whitespace-pre-wrap break-words flex flex-col items-center justify-center">
         <p className="text-center"> Failed to render slide component. Check console for details.</p>
-        <button onClick={() => retrySlide(slide.slide_number)} className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 flex items-center justify-center mt-6"> <RotateCcw className="w-4 h-4 mr-1" /> Re-Construct</button>
+        <button
+          onClick={() => {
+            console.info(
+              `[template-layout] reconstruct-click slide_number=${slide.slide_number} retryIndex=${retryIndex}`
+            );
+            retrySlide(retryIndex);
+          }}
+          className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 flex items-center justify-center mt-6"
+        > <RotateCcw className="w-4 h-4 mr-1" /> Re-Construct</button>
       </div>
     );
   }

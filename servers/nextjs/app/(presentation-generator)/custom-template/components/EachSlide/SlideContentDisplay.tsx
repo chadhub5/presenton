@@ -71,6 +71,7 @@ export const SlideContentDisplay: React.FC<SlideContentDisplayProps> = ({
   // Error state
   if (slide.error) {
     const isImageTooLarge = slide.error.includes("image exceeds 5 MB maximum");
+    const retryIndex = Math.max(0, Number(slide.slide_number ?? 1) - 1);
 
     return (
       <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] p-6">
@@ -93,7 +94,12 @@ export const SlideContentDisplay: React.FC<SlideContentDisplayProps> = ({
               }
             </p>
             <button
-              onClick={() => retrySlide(slide.slide_number)}
+              onClick={() => {
+                console.info(
+                  `[template-layout] retry-click slide_number=${slide.slide_number} retryIndex=${retryIndex}`
+                );
+                retrySlide(retryIndex);
+              }}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-full bg-white border border-[#FECACA] text-[#DC2626] hover:bg-[#FEE2E2] transition-all"
             >
               <RotateCcw className="w-4 h-4" />

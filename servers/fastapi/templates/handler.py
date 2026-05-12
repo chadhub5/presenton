@@ -1,3 +1,4 @@
+import logging
 import os
 import random
 import re
@@ -41,6 +42,8 @@ from utils.asset_directory_utils import (
     resolve_app_path_to_filesystem,
     resolve_image_path_to_filesystem,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TemplateDetail(BaseModel):
@@ -163,6 +166,13 @@ def _strip_code_fences(value: str) -> str:
     )
 
 
+def _preview_text(value: str, *, max_chars: int = 320) -> str:
+    compact = value.replace("\n", "\\n")
+    if len(compact) <= max_chars:
+        return compact
+    return f"{compact[:max_chars]}..."
+
+
 def _normalize_layout_code_for_create(code: str) -> str:
     normalized = _strip_code_fences(code)
     normalized = (
@@ -176,20 +186,20 @@ def _normalize_layout_code_for_create(code: str) -> str:
     if first_import_match:
         normalized = normalized[first_import_match.start() :]
 
-    first_export_match = re.search(r"(?m)^\s*export\b", normalized)
-    if first_export_match:
-        normalized = normalized[: first_export_match.start()]
-
     normalized = re.sub(
-        r"(?ms)^\s*(?:import|export)\b.*?;(?:\r?\n|$)",
+        r"(?ms)^\s*import\b.*?;(?:\r?\n|$)",
         "",
         normalized,
     )
+    normalized = re.sub(r"(?m)^\s*export\s+default\s+(function|class)\b", r"\1", normalized)
     normalized = re.sub(
-        r"(?m)^\s*(?:import|export)\b.*(?:\r?\n|$)",
-        "",
+        r"(?m)^\s*export\s+(const|let|var|function|class|interface|type|enum)\b",
+        r"\1",
         normalized,
     )
+    normalized = re.sub(r"(?m)^\s*export\s+\{[^}]*\}\s*;?\s*$", "", normalized)
+    normalized = re.sub(r"(?m)^\s*export\s+default\s+[^;\n]+\s*;?\s*$", "", normalized)
+    normalized = re.sub(r"(?m)^\s*export\s+\*\s+from\s+['\"].*?['\"]\s*;?\s*$", "", normalized)
     normalized = normalized.strip()
     normalized = re.sub(
         r'(layoutId\s*=\s*["\'])([^"\']+)(["\'])',
@@ -451,6 +461,12 @@ async def _create_slide_layout_impl(
     total_slides = len(template_info.slide_htmls)
     if request.index < 0 or request.index >= total_slides:
         raise HTTPException(status_code=400, detail="Invalid slide index")
+    LOGGER.info(
+        "[template-layout] start template_id=%s slide_index=%d/%d",
+        request.id,
+        request.index,
+        total_slides - 1,
+    )
 
     slide_html = template_info.slide_htmls[request.index]
     slide_image_url = template_info.slide_image_urls[request.index]
@@ -468,8 +484,43 @@ async def _create_slide_layout_impl(
         image_bytes=image_bytes,
         media_type=media_type,
     )
+    LOGGER.info(
+        "[template-layout] model-output template_id=%s slide_index=%d chars=%d preview=%s",
+        request.id,
+        request.index,
+        len(react_component or ""),
+        _preview_text(react_component or ""),
+    )
     normalized_react_component = _normalize_layout_code_for_create(react_component)
+    LOGGER.info(
+        "[template-layout] normalized-output template_id=%s slide_index=%d chars=%d preview=%s",
+        request.id,
+        request.index,
+        len(normalized_react_component or ""),
+        _preview_text(normalized_react_component or ""),
+    )
+    if not normalized_react_component.strip():
+        LOGGER.error(
+            "[template-layout] empty-normalized-output template_id=%s slide_index=%d raw_chars=%d",
+            request.id,
+            request.index,
+            len(react_component or ""),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Slide layout code was empty after processing model output. "
+                "Regenerate or check that the model returns TSX with imports first "
+                "and a single `export { ... }` line at the bottom."
+            ),
+        )
 
+    LOGGER.info(
+        "[template-layout] success template_id=%s slide_index=%d chars=%d",
+        request.id,
+        request.index,
+        len(normalized_react_component),
+    )
     return CreateSlideLayoutResponse(react_component=normalized_react_component)
 
 
@@ -490,7 +541,16 @@ async def create_slide_layout_job_start(
             result = await _create_slide_layout_impl(session, req)
             return result.react_component
 
-    job_id = await start_slide_layout_job(work)
+    job_id = await start_slide_layout_job(
+        work,
+        debug_label=f"template={req.id} slide={req.index + 1}",
+    )
+    LOGGER.info(
+        "[template-layout] queued-job template_id=%s slide_index=%d job_id=%s",
+        req.id,
+        req.index,
+        job_id,
+    )
     return SlideLayoutJobStartResponse(job_id=job_id)
 
 
@@ -500,6 +560,14 @@ async def create_slide_layout_job_status(
     rec = await get_slide_layout_job(str(job_id))
     if rec is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    if rec.status in ("complete", "failed"):
+        LOGGER.info(
+            "[template-layout] job-terminal-status job_id=%s status=%s chars=%d error=%s",
+            job_id,
+            rec.status,
+            len(rec.react_component or ""),
+            rec.error or "",
+        )
     return SlideLayoutJobStatusResponse(
         status=rec.status,
         react_component=rec.react_component,
