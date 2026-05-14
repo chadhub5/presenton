@@ -1,14 +1,18 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
 #
-# Integration stage runs outline -> structure -> per-slide content (see evals/provider.py),
-# matching servers/fastapi/api/v1/ppt/endpoints/presentation.py batch slide generation order.
+# Chained deck eval: stage `outline_then_structure_then_slide_content` (evals/provider.py).
+# Runs outline → structure (layout index per slide) → slide content.
+# Slide content **depends on structure**: each slide is filled against the JSON schema of the layout chosen
+# for that slide in the structure step (same as production presentation.py).
 #
-# Assertions and llm-rubrics MUST use `rendered_slide_bodies` only — final structured slide
-# payloads (headline, body_markdown, table_md, __speaker_note__, …). Do not score outline/structure.
+# Assertions and llm-rubrics MUST use `rendered_slide_bodies` only for quality — final slide dicts
+# (headline, body_markdown, table_md, __speaker_note__, …). Ignore outline/structure in rubric text.
+#
+# Required vars: same outline contract as tests/outline/core.yaml, plus `layout_json` (catalog).
 
-- description: "[integration] metrics fidelity — judge final slide bodies only"
+- description: "[slides] metrics fidelity — final slide bodies only"
   vars:
-    stage: integration
+    stage: outline_then_structure_then_slide_content
     content: >
       Executive climate risk update. Use only these facts: CO2 421 ppm,
       warming 1.45C in 2023, clean energy investment USD 1.7T, solar additions
@@ -55,9 +59,9 @@
         with no extra invented statistics, percentages, or currency amounts.
         Score 0 if any other numbers appear in those slide bodies or if key allowed facts are missing.
 
-- description: "[integration] qualitative brief — no invented money in final slides"
+- description: "[slides] qualitative brief — no invented money in final slides"
   vars:
-    stage: integration
+    stage: outline_then_structure_then_slide_content
     content: >
       Quarterly operations narrative: better warehouse accuracy, wider carrier coverage,
       improved customer delivery communication, and lower packaging waste.
@@ -89,9 +93,9 @@
         percentages, or currency) while reflecting the operational themes.
         Score 0 if any slide body adds specific financial or numeric claims not in the briefing.
 
-- description: "[integration] Spanish — final slide copy in Spanish"
+- description: "[slides] Spanish — final slide copy in Spanish"
   vars:
-    stage: integration
+    stage: outline_then_structure_then_slide_content
     content: >
       Presentacion sobre movilidad urbana en America Latina para alcaldias:
       micromovilidad, brechas de inversion en transporte publico, retos de ultima milla,

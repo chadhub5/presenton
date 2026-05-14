@@ -2,10 +2,11 @@
 Promptfoo provider: Presenton outline / structure / slide-content via llmai only.
 
 Supported stages:
-  - outline
-  - structure
-  - slide_content
-  - integration (outline -> structure -> per-slide content end-to-end)
+  - outline — user brief → outline JSON only
+  - outline_then_structure — outline LLM, then per-slide layout indices (requires layout_json)
+  - outline_then_structure_then_slide_content — outline → layout indices → slide JSON **for each chosen layout’s
+    schema** (slide content step depends on structure: `response_schema` = selected layout’s `json_schema` per slide).
+    Same sequencing as production `presentation.py`. Returns outline, structure, slides, rendered_slide_bodies.
 """
 
 from __future__ import annotations
@@ -49,6 +50,21 @@ from schema_tools import prepare_schema_for_json_schema_response  # noqa: E402
 
 def _vars_bool(vars_: dict, key: str, default: bool = False) -> bool:
     return messages_builder._as_bool(vars_.get(key), default)
+
+
+def _structure_vars_for_outline_chain(vars_: dict) -> dict:
+    """Vars copy for structure after an outline: layout-only instructions unless structure_instructions is set."""
+    structure_vars = dict(vars_)
+    si = structure_vars.get("structure_instructions")
+    if si is None or not str(si).strip():
+        structure_vars["instructions"] = (
+            "For each outline slide, choose the catalog layout index that best fits its markdown. "
+            "Use TOC layouts only for real table-of-contents slides; use chart-capable layouts for "
+            "numeric markdown tables when appropriate; prefer visual variety when multiple layouts fit."
+        )
+    else:
+        structure_vars["instructions"] = str(si)
+    return structure_vars
 
 
 async def _generate_outline(client, model: str, vars_: dict) -> dict:
@@ -186,37 +202,34 @@ async def _run_stage(*, vars_: dict) -> str:
     if stage == "outline":
         content = await _generate_outline(client, model, vars_)
         return json.dumps(content, ensure_ascii=False)
-    elif stage == "structure":
-        if not vars_.get("outline_slides_json"):
-            raise ValueError("structure stage requires outline_slides_json")
-        outline_payload = json.loads(str(vars_["outline_slides_json"]))
-        content = await _generate_structure(client, model, vars_, outline_payload)
-        return json.dumps(content, ensure_ascii=False)
-    elif stage in {"slide", "slide_content"}:
-        if not vars_.get("response_schema_json"):
-            raise ValueError("slide_content stage requires response_schema_json")
-        response_schema = json.loads(str(vars_["response_schema_json"]))
-        content = await _generate_slide_content(
-            client,
-            model,
-            vars_,
-            slide_markdown=str(vars_.get("slide_markdown", "")),
-            response_schema=response_schema,
-        )
-        return json.dumps(content, ensure_ascii=False)
-    elif stage == "integration":
-        # Same sequencing as production presentation generation (see presentation.py):
-        #   1) outline LLM  ->  2) per-slide layout indices (structure) LLM
-        #   ->  3) per-slide structured content LLM from outline markdown + chosen layout schema
+    elif stage == "outline_then_structure":
         if not vars_.get("layout_json"):
-            raise ValueError("integration stage requires layout_json")
+            raise ValueError("outline_then_structure requires layout_json")
+        outline_payload = await _generate_outline(client, model, vars_)
+        structure_vars = _structure_vars_for_outline_chain(vars_)
+        structure_payload = await _generate_structure(
+            client, model, structure_vars, outline_payload
+        )
+        return json.dumps(
+            {"outline": outline_payload, "structure": structure_payload},
+            ensure_ascii=False,
+        )
+    elif stage == "outline_then_structure_then_slide_content":
+        # Same sequencing as production presentation generation (see presentation.py):
+        #   1) outline  2) structure (layout index per slide)  3) slide content — each slide’s structured output
+        #   uses the JSON schema of **that slide’s chosen layout** (layout index from step 2), not a fixed schema.
+        if not vars_.get("layout_json"):
+            raise ValueError("outline_then_structure_then_slide_content requires layout_json")
         outline_payload = await _generate_outline(client, model, vars_)
         outline_model = PresentationOutlineModel.model_validate(outline_payload)
-        structure_payload = await _generate_structure(client, model, vars_, outline_payload)
+        structure_vars = _structure_vars_for_outline_chain(vars_)
+        structure_payload = await _generate_structure(
+            client, model, structure_vars, outline_payload
+        )
         structure_slides = list(structure_payload.get("slides", []))
         if len(structure_slides) != len(outline_model.slides):
             raise ValueError(
-                "integration stage mismatch: structure slide count != outline slide count"
+                "outline_then_structure_then_slide_content mismatch: structure slide count != outline slide count"
             )
         layout = PresentationLayoutModel.model_validate_json(
             layout_load.resolve_layout_json(vars_["layout_json"])
@@ -226,11 +239,11 @@ async def _run_stage(*, vars_: dict) -> str:
             layout_index = int(structure_slides[i])
             if layout_index < 0 or layout_index >= len(layout.slides):
                 raise ValueError(
-                    f"integration stage invalid layout index {layout_index} at slide {i + 1}"
+                    f"outline_then_structure_then_slide_content invalid layout index {layout_index} at slide {i + 1}"
                 )
             selected_layout = layout.slides[layout_index]
             response_schema = _prepare_slide_schema(selected_layout.json_schema)
-            slide_content = await _generate_slide_content(
+            slide_body = await _generate_slide_content(
                 client,
                 model,
                 vars_,
@@ -242,10 +255,9 @@ async def _run_stage(*, vars_: dict) -> str:
                     "slide_number": i + 1,
                     "layout_index": layout_index,
                     "layout_id": selected_layout.id,
-                    "content": slide_content,
+                    "content": slide_body,
                 }
             )
-        # Final slide payloads only (what users see in deck bodies). Use for eval assertions / rubrics.
         rendered_slide_bodies: list[dict] = [row["content"] for row in rendered_slides]
         return json.dumps(
             {

@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Presenton outline → structure (layout index) eval — real standard.json catalog"
+
+# Same provider as outline eval; uses stage outline_then_structure in tests/structure/core.yaml
+
+env:
+  LLM: openai
+  OPENAI_MODEL: gpt-4o-mini
+
+prompts:
+  - file://prompts/provider_placeholder.txt
+
+providers:
+  - id: file://provider.py
+    label: presenton-llm
+
+defaultTest:
+  options:
+    provider: openai:chat:gpt-4o-mini
+  assert:
+    - type: javascript
+      value: |
+        try {
+          if (output == null) return false;
+          const o = typeof output === 'string' ? JSON.parse(output) : output;
+          if (o == null || typeof o !== 'object') return false;
+          if (!o.structure || !Array.isArray(o.structure.slides)) return false;
+          JSON.parse(JSON.stringify(o));
+          return true;
+        } catch (e) {
+          return false;
+        }
+      description: "Valid JSON with outline+structure.shape"
+
+tests:
+  - file://tests/structure/core.yaml

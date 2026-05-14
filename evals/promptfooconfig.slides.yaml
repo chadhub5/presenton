@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Presenton outline → layout indices → slide bodies (slide JSON uses each chosen layout’s schema)"
+
+env:
+  LLM: openai
+  OPENAI_MODEL: gpt-4o-mini
+
+prompts:
+  - file://prompts/provider_placeholder.txt
+
+providers:
+  - id: file://provider.py
+    label: presenton-llm
+
+defaultTest:
+  options:
+    provider: openai:chat:gpt-4o-mini
+  assert:
+    - type: javascript
+      value: |
+        try {
+          if (output == null) return false;
+          const o = typeof output === 'string' ? JSON.parse(output) : output;
+          if (o == null || typeof o !== 'object') return false;
+          if (!Array.isArray(o.rendered_slide_bodies)) return false;
+          JSON.parse(JSON.stringify(o));
+          return true;
+        } catch (e) {
+          return false;
+        }
+      description: "Valid JSON with rendered_slide_bodies"
+
+tests:
+  - file://tests/slide-content/core.yaml

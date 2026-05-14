@@ -1,0 +1,409 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Two-stage layout eval: stage `outline_then_structure` (see evals/provider.py).
+# 1) LLM generates outline from the same vars as outline-only tests.
+# 2) LLM picks one layout index per slide using prompts/structure_system.txt + real catalog
+#    file://schemas/layouts/standard.json (see schemas/layouts/standard.meta.json).
+#
+# Output shape: { "outline": { "slides": [...] }, "structure": { "slides": [int, ...] } }
+#
+# Shared vars for catalog bounds (assertions / rubrics):
+#   layout_catalog_size: 11          # must match standard.meta.json num_layouts
+#   toc_layout_index: 9               # standard:table-of-contents-layout
+#
+# Optional:
+#   structure_instructions: string   # passed to structure stage only (layout choice). If omitted, provider default applies.
+#
+# Outline vars: same contract as tests/outline/core.yaml (content, n_slides, tone, verbosity, …).
+#
+# --- Catalog validity + shape ---
+- description: "[chain] four-slide B2B product arc — indices in range"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Create a four-slide outline for a B2B analytics product update for directors of engineering: slide 1 opening
+      and promise of faster incident insight; slide 2 problem with fragmented logs and alert fatigue; slide 3 product
+      approach with three bullets on correlation and runbooks; slide 4 proof with two anonymized customer outcomes and
+      a clear ask for a pilot workshop. Each slide must use markdown with a ## title and substantive bullets or short
+      paragraphs (no filler). Audience is technical but time-constrained.
+    n_slides: 4
+    language: English
+    tone: professional
+    verbosity: standard
+    instructions: "Keep each slide focused on one chapter; no tables required."
+    additional_context: ""
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: >
+      Pick one layout index per slide from the standard catalog. Match narrative vs proof vs CTA; prefer variety when
+      multiple layouts fit. Do not use the table-of-contents layout unless a slide is explicitly a TOC.
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        return Array.isArray(s) && s.length === 4 &&
+          s.every(i => Number.isInteger(i) && i >= 0 && i < n);
+    - type: llm-rubric
+      threshold: 0.65
+      value: >
+        Catalog has {{layout_catalog_size}} layouts (indices 0..{{layout_catalog_size}}-1). Outline was generated then structure indices chosen.
+        Score 1 if each index plausibly matches that slide's role (intro / problem / product / proof+ask) and no index is out of range.
+        Score 0 if indices are random, identical for every slide despite varied content, or incompatible with slide text.
+
+- description: "[chain] five-slide marketing launch — some layout variety"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Five-slide consumer launch outline for a plant-based yogurt: audience tension, positioning line, three proof
+      points (taste test, nutrition, sustainability), omnichannel plan with retail and social, and closing KPIs plus
+      CTA. Use clear ## headings and bullets; avoid markdown tables on slides 1–3; you may use a small comparison table
+      on slide 4 only if it helps the channel plan. Tone should stay persuasive and concrete.
+    n_slides: 5
+    language: English
+    tone: sales_pitch
+    verbosity: standard
+    instructions: "Slide 5 must end with measurable KPIs and one CTA sentence."
+    additional_context: "Agency review deck."
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "Prefer at least two different layout indices across the deck when content allows; match denser slides to layouts that support bullets or cards."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        if (!Array.isArray(s) || s.length !== 5) return false;
+        if (!s.every(i => Number.isInteger(i) && i >= 0 && i < n)) return false;
+        return new Set(s).size >= 2;
+    - type: llm-rubric
+      threshold: 0.65
+      value: >
+        Five-slide launch arc. Score 1 if layout choices show variety (not five copies of the same index without reason)
+        and CTA/KPI slide uses a layout that supports lists or metrics. Score 0 if all indices are identical or clearly wrong for the slide bodies.
+
+- description: "[chain] six-slide internal roadmap — stronger variety bar"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Six-slide internal roadmap for a platform team: vision and north star, current pillars, top customer pains with
+      one example each, engineering bets for the next two quarters, GTM calendar milestones, and risks with mitigations.
+      Each slide needs a ## title and at least four substantive bullet lines. No images or URLs; no markdown tables on
+      slides 1 or 6; optional small table only on slide 4 for milestone dates. Audience: engineering and product leaders.
+    n_slides: 6
+    language: English
+    tone: professional
+    verbosity: text-heavy
+    instructions: "Keep slide 6 to risks and mitigations only; do not introduce new product pillars on slide 6."
+    additional_context: ""
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "Strongly prefer at least three distinct layout indices across the six slides when multiple layouts fit the markdown."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        if (!Array.isArray(s) || s.length !== 6) return false;
+        if (!s.every(i => Number.isInteger(i) && i >= 0 && i < n)) return false;
+        return new Set(s).size >= 3;
+    - type: llm-rubric
+      threshold: 0.62
+      value: >
+        Six-slide roadmap with varied slide types. Score 1 if layout indices are not almost all the same and each choice is defensible from the outline text.
+        Score 0 if five or six slides share one index without clear reason or choices ignore obvious table vs non-table cues.
+
+- description: "[chain] Spanish three-slide policy brief — valid indices"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Tres diapositivas para un informe breve de politica de movilidad urbana en castellano: contexto regional,
+      retos de inversion y ultima milla, y recomendaciones concretas para ayuntamientos. Cada diapositiva debe tener un
+      titulo en markdown con ## y varios bullets sustantivos (minimo cuatro lineas de contenido por diapositiva). Sin
+      tablas markdown obligatorias; tono profesional y claro para no especialistas.
+    n_slides: 3
+    language: Spanish
+    tone: professional
+    verbosity: standard
+    instructions: "Mantener el espanol en todas las diapositivas."
+    additional_context: ""
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "Selecciona indices de layout adecuados al contenido en espanol; respeta el tamano del catalogo."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        return Array.isArray(s) && s.length === 3 &&
+          s.every(i => Number.isInteger(i) && i >= 0 && i < n);
+    - type: llm-rubric
+      threshold: 0.64
+      value: >
+        Spanish policy outline then layout indices. Score 1 if choices fit headings and bullet-heavy policy text. Score 0 if picks are random or ignore language/content cues.
+
+- description: "[chain] educational photosynthesis — five slides"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Five-slide middle-school lesson outline on photosynthesis: what it is, why leaves look green, inputs and outputs
+      with a simple word equation, one real greenhouse or farm example, and a recap slide with five short review
+      questions only. Use ## titles and kid-friendly definitions in one short phrase for any technical term. No images
+      required; optional one small markdown table on slide 4 comparing sunlight vs artificial light for growth if it
+      helps clarity.
+    n_slides: 5
+    language: English
+    tone: educational
+    verbosity: standard
+    instructions: "Slide 5 must be recap and questions only; no new core concepts on slide 5."
+    additional_context: "Audience about 12 years old."
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "Choose layouts that support teaching progression (concept slides vs example vs recap/questions); avoid TOC layout."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        return Array.isArray(s) && s.length === 5 &&
+          s.every(i => Number.isInteger(i) && i >= 0 && i < n);
+    - type: llm-rubric
+      threshold: 0.64
+      value: >
+        Educational arc for young teens. Score 1 if layout indices differ sensibly across lesson vs example vs recap and avoid obviously wrong image-only picks for text-only slides.
+        Score 0 if all slides use one index or recap/questions slide uses a layout ill-suited to Q&A lists.
+
+- description: "[chain] single TOC-only slide — prefer dedicated TOC layout"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    toc_layout_index: 9
+    content: >
+      One slide only: a board-ready table of contents for a 45-minute QBR. The slide must list exactly these sections
+      in order as bullets: Executive summary, Financial highlights, Operational milestones, Customer segment narrative,
+      Risks and mitigations, and Decision asks. Use a clear ## title such as Agenda or Table of contents. Write at least
+      twelve lines of substantive bullet text across the sections (no lorem ipsum). No numeric tables, no images, no
+      URLs.
+    n_slides: 1
+    language: English
+    tone: professional
+    verbosity: concise
+    instructions: "This deck has only this TOC slide; keep everything on one slide."
+    additional_context: "Quarterly business review for leadership."
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: >
+      The outline is a single table-of-contents slide listing sections. You MUST choose layout index 9 (the dedicated
+      table-of-contents layout in this catalog) for slide 1.
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        const toc = Number("{{toc_layout_index}}");
+        return Array.isArray(s) && s.length === 1 &&
+          Number.isInteger(s[0]) && s[0] >= 0 && s[0] < n;
+    - type: llm-rubric
+      threshold: 0.72
+      value: >
+        Single-slide outline is a table of contents. Catalog TOC layout index is {{toc_layout_index}}.
+        Score 1 if the chosen index is 9 or another clearly TOC-appropriate choice from the catalog. Score 0 if a non-TOC layout is chosen for a pure agenda slide.
+
+- description: "[chain] numeric table on slide four — chart-capable layout on that slide"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Four-slide executive metrics storyline in English: slide 1 context without numbers; slide 2 funnel narrative
+      without invented percentages; slide 3 qualitative retention story; slide 4 MUST include a markdown pipe table with
+      numeric cells only for these rows: Region, ARR in USD millions, YoY percent — with NA 42 and 18%, EU 31 and 12%,
+      APAC 27 and 9%. Slides 1–3 must not contain markdown pipe tables. Each slide needs ## title and dense bullets
+      except the table block on slide 4.
+    n_slides: 4
+    language: English
+    tone: professional
+    verbosity: standard
+    instructions: "Do not add other numeric tables besides the one specified on slide 4."
+    additional_context: "Outline feeds layout picker; table is only on slide 4."
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: >
+      Slide 4 contains a numeric markdown table: prefer a chart-capable layout (indices 0 or 10 in this catalog) for
+      that slide. Slides without tables should not pick layouts whose primary affordance is a large numeric chart if a
+      simpler text layout fits better.
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        if (!Array.isArray(s) || s.length !== 4) return false;
+        if (!s.every(i => Number.isInteger(i) && i >= 0 && i < n)) return false;
+        const last = s[3];
+        return last === 0 || last === 10;
+    - type: llm-rubric
+      threshold: 0.62
+      value: >
+        Slide 4 should carry a numeric markdown table; catalog favors chart-style layouts at indices 0 and 10.
+        Score 1 if slide 4 index is 0 or 10 or another clearly chart-oriented choice. Score 0 if slide 4 uses a text-only layout that cannot host the table/chart affordance.
+
+- description: "[chain] team roster slide plus narrative — five slides"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Five-slide seed pitch outline: slide 1 hook; slide 2 problem; slide 3 solution with brief traction proof as
+      bullets (name three pilot clinic cities as text only, no URLs); slide 4 team roster with four named roles
+      (CEO, CTO, Head of Sales, Advisor) each with one line bio bullet; slide 5 fundraise ask only with amount ask as
+      prose (no tables). Use ## headings; slides 1–3 and 5 must not pretend to be photo grids. No markdown tables.
+    n_slides: 5
+    language: English
+    tone: sales_pitch
+    verbosity: concise
+    instructions: "Order: hook, problem, solution+traction on one slide, team roster on slide 4, fundraise ask only on slide 5."
+    additional_context: "Investor pitch."
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "Slide 4 is a team roster: prefer a team- or cards-friendly layout index from the catalog (e.g. layout with team cards in name/description). Slide 5 should support a short ask and bullets."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        return Array.isArray(s) && s.length === 5 &&
+          s.every(i => Number.isInteger(i) && i >= 0 && i < n);
+    - type: llm-rubric
+      threshold: 0.65
+      value: >
+        Slide 4 should present multiple people/roles. Score 1 if layout index on slide 4 fits a team/cards pattern from the catalog and slide 5 fits a CTA slide.
+        Score 0 if team slide uses an unrelated single-hero layout or all slides share one index without reason.
+
+- description: "[chain] enterprise risk register — three slides"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Three-slide enterprise risk readout for the CIO: slide 1 enterprise context and scope; slide 2 top five risks
+      each with one-line impact and owner role; slide 3 mitigations and decision asks with dates as month names only
+      (no numeric tables). Markdown ## titles; at least five bullets on slide 2. Professional tone, no marketing hype.
+    n_slides: 3
+    language: English
+    tone: professional
+    verbosity: standard
+    instructions: "Do not invent dollar amounts or breach names."
+    additional_context: ""
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "Dense risk lists should map to layouts that support multiple bullets or columns; avoid TOC unless slide is a TOC."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        return Array.isArray(s) && s.length === 3 &&
+          s.every(i => Number.isInteger(i) && i >= 0 && i < n);
+    - type: llm-rubric
+      threshold: 0.63
+      value: >
+        Executive risk storyline. Score 1 if layout choices support dense bullets on slide 2 and sober narrative elsewhere.
+        Score 0 if choices are random or image-first layouts for text-only risk lists.
+
+- description: "[chain] quarterly metrics story — five slides qualitative trends"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Five-slide quarterly metrics readout for product and data leaders: funnel story with qualitative up/down/flat
+      language only unless repeating a number from this prompt, cohort retention themes without invented percentages,
+      experiment A/B narrative, data quality caveats, segment contrast SMB vs enterprise without fake statistics, and
+      three decision bullets for next quarter. Each slide needs ## title; do not add markdown pipe tables anywhere.
+    n_slides: 5
+    language: English
+    tone: professional
+    verbosity: standard
+    instructions: "Name each slide by metric theme; no fabricated percentages."
+    additional_context: "Internal quarterly review."
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "No markdown tables in the outline: avoid choosing layouts whose primary schema field is a large table_md unless a slide truly contains a pipe table."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        if (!Array.isArray(s) || s.length !== 5) return false;
+        if (!s.every(i => Number.isInteger(i) && i >= 0 && i < n)) return false;
+        return new Set(s).size >= 2;
+    - type: llm-rubric
+      threshold: 0.63
+      value: >
+        Qualitative metrics story without tables. Score 1 if layouts match bullet-heavy analytical slides and avoid table-first layouts for slides that have no pipe table.
+        Score 0 if table-style layouts dominate despite no tables in the outline text.
+
+- description: "[chain] opening title then deep dive — four slides concise"
+  vars:
+    stage: outline_then_structure
+    layout_json: file://schemas/layouts/standard.json
+    layout_catalog_size: 11
+    content: >
+      Four-slide outline for a city transit workshop: opening title promise, benefits for riders and air quality in
+      bullets, charging and grid impacts in bullets with one short caution note, and policy levers plus one ask for
+      council. Use ## headings; slides 2–4 need at least four bullets each; slide 1 should be a short hero-style opener
+      under twelve lines total. No images or URLs; no markdown tables.
+    n_slides: 4
+    language: English
+    tone: professional
+    verbosity: concise
+    instructions: "Slide 1 must stay short; slides 2–4 carry detail."
+    additional_context: "Workshop for agency staff."
+    include_title_slide: true
+    include_table_of_contents: false
+    web_search: false
+    structure_instructions: "Slide 1 is a short opener: prefer a title-forward layout; later slides should use layouts that support multiple bullets."
+  assert:
+    - type: javascript
+      value: |
+        const r = typeof output === 'string' ? JSON.parse(output) : output;
+        const s = r.structure && r.structure.slides;
+        const n = Number("{{layout_catalog_size}}");
+        return Array.isArray(s) && s.length === 4 &&
+          s.every(i => Number.isInteger(i) && i >= 0 && i < n);
+    - type: llm-rubric
+      threshold: 0.64
+      value: >
+        Slide 1 opener vs deeper bullet slides. Score 1 if first layout fits a concise title/opening and later indices fit denser bullet content.
+        Score 0 if slide 1 gets a heavy multi-column layout clearly meant for long lists or all four slides use the same index without justification.

@@ -16,7 +16,7 @@ At runtime, `evals/layout_load.py` inlines the file so `PresentationLayoutModel.
 
 | File | Purpose |
 |------|---------|
-| `eval-default.json` | Three layouts (title, text, table) used by structure + integration evals |
-| `standard.json`, `swift.json`, `*.meta.json` | Generated from Next.js templates (`servers/nextjs/app/presentation-templates/<group>`). Regenerate: `cd servers/nextjs && npm run export-layout-eval-fixtures` (optional `-- standard,swift`). Structure evals under `tests/structure/builtin-standard.yaml` use `standard.json`. |
+| `eval-default.json` | Three layouts (title, text, table) used by **`outline_then_structure_then_slide_content`** tests in `tests/slide-content/core.yaml` |
+| `standard.json`, `swift.json`, `*.meta.json` | Generated from Next.js templates (`servers/nextjs/app/presentation-templates/<group>`). Regenerate: `cd servers/nextjs && npm run export-layout-eval-fixtures` (optional `-- standard,swift`). **`outline_then_structure`** tests in `tests/structure/core.yaml` use `standard.json`. |
 
 Add new fixtures for richer templates (charts, images) as needed; reference them with `file://schemas/layouts/<name>.json`.

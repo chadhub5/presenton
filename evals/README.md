@@ -4,14 +4,13 @@
 
 ## What runs today
 
-The default config only loads **outline** tests. Other suites live in the repo so you can wire them in when you are ready.
+| Suite | Config | `stage` in tests |
+|-------|--------|------------------|
+| Outline | `promptfooconfig.yaml` | `outline` |
+| Layout indices | `promptfooconfig.structure.yaml` | `outline_then_structure` |
+| Slide bodies (per chosen layout schema) | `promptfooconfig.slides.yaml` | `outline_then_structure_then_slide_content` |
 
-| Eval area | In `promptfooconfig.yaml` now |
-|-----------|-------------------------------|
-| Outline generation | ✓ |
-| Structure (layout selection) | — |
-| Slide content | — |
-| Integration (outline → structure → slides) | — |
+`provider.py` only exposes **`outline`**, **`outline_then_structure`**, and **`outline_then_structure_then_slide_content`**. There is no separate one-shot **`structure`** or **`slide_content`** stage: those steps always run after an outline in the same call.
 
 ---
 
@@ -72,7 +71,7 @@ export OPENAI_API_KEY="sk-..."
 promptfoo eval -c promptfooconfig.yaml --no-cache --no-share
 ```
 
-- **`-c` / `--config`** — Path to your config file. Use it when the file is not named `promptfooconfig.yaml` or when you keep multiple configs (e.g. `promptfooconfig.structure.yaml`).
+- **`-c` / `--config`** — Path to your config file. Other configs in this folder: `promptfooconfig.structure.yaml`, `promptfooconfig.slides.yaml`.
 - **`--no-cache`** — Skips disk cache so you see fresh model outputs.
 - **`--no-share`** — Avoids uploading results to promptfoo cloud (good default for private keys).
 
@@ -117,26 +116,60 @@ There is no separate “evaluation” subcommand name—**`eval`** runs tests an
 ## How it works
 
 1. **`promptfooconfig.yaml`** — Declares env defaults, the stub prompt, the custom provider, optional `defaultTest` assertions, and the **`tests:`** list (YAML files under `tests/`).
-2. **`provider.py`** — For each test case, promptfoo passes `vars` into the provider. The `stage` variable selects the pipeline:
-   - **`outline`** — User brief → structured outline JSON.
-   - **`structure`** — Needs `outline_slides_json` (and related vars); picks per-slide layouts.
-   - **`slide_content`** — Needs `slide_markdown`, `response_schema_json`, etc.
-   - **`integration`** — Full chain; needs `layout_json` and runs outline → structure → per-slide content (see comments in `provider.py`).
+2. **`provider.py`** — Promptfoo passes `vars` per case. **`stage`** selects:
+   - **`outline`** — Brief → outline JSON only.
+   - **`outline_then_structure`** — Outline LLM, then layout indices for that outline. Needs **`layout_json`**. Returns `{ "outline", "structure" }`. Config: **`promptfooconfig.structure.yaml`** (catalog: **`schemas/layouts/standard.json`**).
+   - **`outline_then_structure_then_slide_content`** — Outline → **layout indices (structure)** → **slide JSON per slide**. The last step **depends on structure**: for each slide, the model fills the fields of **`json_schema` for the layout index chosen for that slide** (see `provider.py`: `response_schema` comes from `selected_layout.json_schema`). Same order as production `presentation.py`. Needs **`layout_json`**. Returns **`outline`**, **`structure`**, **`slides`**, **`rendered_slide_bodies`**. Config: **`promptfooconfig.slides.yaml`**.
 
-3. **Assertions** — Defined per test or via `defaultTest` (e.g. “valid JSON”). `llm-rubric` assertions need a grader model/API access as promptfoo documents.
+3. **Assertions** — Per test or `defaultTest`. For slide-chain tests, grade **`rendered_slide_bodies`** only when checking final copy quality. `llm-rubric` needs grader API access per promptfoo.
 
-### Evaluating structure, slide content, or integration
+### Test files (each suite: one `core.yaml`)
 
-The YAML suites already exist:
+| Path | `stage` | Run with |
+|------|---------|----------|
+| `tests/outline/core.yaml` | `outline` | `promptfooconfig.yaml` |
+| `tests/structure/core.yaml` | `outline_then_structure` | `promptfooconfig.structure.yaml` |
+| `tests/slide-content/core.yaml` | `outline_then_structure_then_slide_content` | `promptfooconfig.slides.yaml` |
 
-| Path | `stage` in tests | Notes |
-|------|------------------|--------|
-| `tests/outline/core.yaml` | `outline` | Default config includes this only. |
-| `tests/structure/*.yaml` | `structure` | Requires `outline_slides_json` (and `n_slides` / layout keys as in each file). |
-| `tests/slide-content/unit.yaml` | `slide_content` | Requires slide markdown + response schema vars. |
-| `tests/integration/flow.yaml` | `integration` | End-to-end; rubrics should target **`rendered_slide_bodies`** when grading final slide content. |
+---
 
-To run them, add the corresponding `file://tests/...` entries under **`tests:`** in your config (or a copy of the config you pass with **`-c`**). You can keep a second file, e.g. `promptfooconfig.full.yaml`, that lists outline + structure + slide + integration, and switch with `-c`.
+## Structure eval (`outline_then_structure`)
+
+Optional var **`structure_instructions`** applies only to the structure (layout) step.
+
+```bash
+cd evals
+source .venv/bin/activate
+export PROMPTFOO_PYTHON="$PWD/.venv/bin/python"
+export OPENAI_API_KEY="sk-..."
+promptfoo eval -c promptfooconfig.structure.yaml --no-cache --no-share
+```
+
+```bash
+cd evals
+export PROMPTFOO_PYTHON="$PWD/.venv/bin/python"
+promptfoo validate config -c promptfooconfig.structure.yaml
+```
+
+---
+
+## Slide bodies eval (`outline_then_structure_then_slide_content`)
+
+Full chain: same outline **`vars`** plus **`layout_json`**. After structure picks an index per slide, **slide generation uses that layout’s schema** (not a single global schema). Tests in `tests/slide-content/core.yaml` use the small **`eval-default.json`** catalog. Rubrics target **`rendered_slide_bodies`** only.
+
+```bash
+cd evals
+source .venv/bin/activate
+export PROMPTFOO_PYTHON="$PWD/.venv/bin/python"
+export OPENAI_API_KEY="sk-..."
+promptfoo eval -c promptfooconfig.slides.yaml --no-cache --no-share
+```
+
+```bash
+cd evals
+export PROMPTFOO_PYTHON="$PWD/.venv/bin/python"
+promptfoo validate config -c promptfooconfig.slides.yaml
+```
 
 ---
 
@@ -145,11 +178,12 @@ To run them, add the corresponding `file://tests/...` entries under **`tests:`**
 | Path | Purpose |
 |------|---------|
 | `promptfooconfig.yaml` | Default entrypoint: env, provider, assertions, **outline-only** `tests` list |
+| `promptfooconfig.structure.yaml` | Outline → structure (layout) chain; loads `tests/structure/core.yaml` |
 | `provider.py` | Builds LLM messages from each test’s `vars` and `stage` |
 | `tests/outline/core.yaml` | Twelve outline tests (six from `Best.csv`, six from `Poor.csv`) |
-| `tests/structure/` | Layout selection given `outline_slides_json` |
-| `tests/slide-content/` | Per-slide structured content |
-| `tests/integration/` | End-to-end outline → structure → slide |
+| `tests/structure/core.yaml` | Eleven chained outline→layout scenarios (`standard.json`) |
+| `promptfooconfig.slides.yaml` | Outline → structure → slide bodies; loads `tests/slide-content/core.yaml` |
+| `tests/slide-content/core.yaml` | Three chained deck scenarios (`eval-default.json` catalog) |
 | `data/user-prompts/` | `Best.csv` / `Poor.csv` — source library text for curated outline tests |
 | `schemas/layouts/` | Canonical layout JSON; tests use `layout_json: file://schemas/layouts/...` |
 | `prompts/` | System/user templates + `provider_placeholder.txt` |
@@ -160,4 +194,6 @@ Shared Python modules (`contracts.py`, `messages_builder.py`, …) live next to 
 
 ## Outline `vars` contract
 
-See the header comment in `tests/outline/core.yaml`. Values align with `servers/fastapi/models/generate_presentation_request.py`, tone/verbosity enums, plus eval-only `stage` and `web_search` for the provider.
+See the header comment in `tests/outline/core.yaml`. Values align with `servers/fastapi/models/generate_presentation_request.py`, tone/verbosity enums, plus eval-only `stage` and `web_search`.
+
+For **`outline_then_structure`** and **`outline_then_structure_then_slide_content`**, add **`layout_json`** (and optional **`structure_instructions`** for the layout step only).
