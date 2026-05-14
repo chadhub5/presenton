@@ -1,22 +1,22 @@
 # Layout fixtures
 
-JSON files here are **`PresentationLayoutModel`** payloads (same shape as `servers/fastapi/templates/presentation_layout.py`).
+JSON here is the **`PresentationLayoutModel`** payload for evals (same shape as `servers/fastapi/templates/presentation_layout.py`).
 
-## Usage in promptfoo tests
-
-Set `layout_json` to a repo-relative pointer (resolved from the `evals/` directory):
-
-```yaml
-layout_json: file://schemas/layouts/eval-default.json
-```
-
-At runtime, `evals/layout_load.py` inlines the file so `PresentationLayoutModel.model_validate_json` always receives raw JSON text.
-
-## Files
+## File
 
 | File | Purpose |
 |------|---------|
-| `eval-default.json` | Three layouts (title, text, table) used by **`outline_then_structure_then_slide_content`** tests in `tests/slide-content/core.yaml` |
-| `standard.json`, `swift.json`, `*.meta.json` | Generated from Next.js templates (`servers/nextjs/app/presentation-templates/<group>`). Regenerate: `cd servers/nextjs && npm run export-layout-eval-fixtures` (optional `-- standard,swift`). **`outline_then_structure`** tests in `tests/structure/core.yaml` use `standard.json`. |
+| `standard.json` | Built-in **standard** template catalog for evals. Regenerate from the app: `cd servers/nextjs && npm run export-layout-eval-fixtures -- standard` (writes into `evals/schemas/layouts/` per project script). |
+| `standard.meta.json` | Indices / layout count for assertions (`num_layouts`, `indices_by_id`). Keep in sync when you regenerate `standard.json`. |
 
-Add new fixtures for richer templates (charts, images) as needed; reference them with `file://schemas/layouts/<name>.json`.
+## Usage in promptfoo tests
+
+```yaml
+layout_json: file://schemas/layouts/standard.json
+```
+
+At runtime, `evals/layout_load.py` resolves `file://…` paths relative to the `evals/` directory.
+
+## Structure prompt context (aligned with production)
+
+Outline-driven structure uses the same message shape as **`generate_presentation_structure.get_messages`**: the user message contains **`presentation_layout.to_string()`** (each layout’s **name** and **description** only) plus the outline text — **not** the full per-layout `json_schema` blobs. Slide content generation still uses each chosen layout’s **`json_schema`** when filling fields (see `provider.py`).

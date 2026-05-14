@@ -155,7 +155,7 @@ promptfoo validate config -c promptfooconfig.structure.yaml
 
 ## Slide bodies eval (`outline_then_structure_then_slide_content`)
 
-Full chain: same outline **`vars`** plus **`layout_json`**. After structure picks an index per slide, **slide generation uses that layout’s schema** (not a single global schema). Tests in `tests/slide-content/core.yaml` use the small **`eval-default.json`** catalog. Rubrics target **`rendered_slide_bodies`** only.
+Full chain: same outline **`vars`** plus **`layout_json: file://schemas/layouts/standard.json`**. After structure picks an index per slide, **slide generation uses that layout’s `json_schema`** (per-slide, from the chosen index). Rubrics target **`rendered_slide_bodies`** only.
 
 ```bash
 cd evals
@@ -183,7 +183,7 @@ promptfoo validate config -c promptfooconfig.slides.yaml
 | `tests/outline/core.yaml` | Twelve outline tests (six from `Best.csv`, six from `Poor.csv`) |
 | `tests/structure/core.yaml` | Eleven chained outline→layout scenarios (`standard.json`) |
 | `promptfooconfig.slides.yaml` | Outline → structure → slide bodies; loads `tests/slide-content/core.yaml` |
-| `tests/slide-content/core.yaml` | Three chained deck scenarios (`eval-default.json` catalog) |
+| `tests/slide-content/core.yaml` | Three chained deck scenarios (`standard.json` catalog) |
 | `data/user-prompts/` | `Best.csv` / `Poor.csv` — source library text for curated outline tests |
 | `schemas/layouts/` | Canonical layout JSON; tests use `layout_json: file://schemas/layouts/...` |
 | `prompts/` | System/user templates + `provider_placeholder.txt` |

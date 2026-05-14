@@ -28,14 +28,13 @@ def get_messages(
         max_layout_index=max(0, num_layouts - 1),
     )
 
-    # Include JSON schema per layout so the model can match fields (table_md, body_markdown, …)
-    # to outline content—mirrors the rich catalog signal from `STRUCTURE_FROM_SLIDES_MARKDOWN` path
-    # in servers/fastapi/utils/llm_calls/generate_presentation_structure.py.
+    # User message: layout catalog as name + description per slide only — same as production
+    # `generate_presentation_structure.get_messages` (not `get_messages_for_slides_markdown`).
     return [
         SystemMessage(content=system_prompt),
         UserMessage(
             content=(
-                f"{presentation_layout.to_string(with_schema=True)}\n\n"
+                f"{presentation_layout.to_string()}\n\n"
                 "--------------------------------------\n\n"
                 f"{data}"
             )

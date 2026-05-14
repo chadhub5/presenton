@@ -8,7 +8,7 @@
 # Assertions and llm-rubrics MUST use `rendered_slide_bodies` only for quality — final slide dicts
 # (headline, body_markdown, table_md, __speaker_note__, …). Ignore outline/structure in rubric text.
 #
-# Required vars: same outline contract as tests/outline/core.yaml, plus `layout_json` (catalog).
+# Required vars: same outline contract as tests/outline/core.yaml, plus `layout_json` (use `standard.json`).
 
 - description: "[slides] metrics fidelity — final slide bodies only"
   vars:
@@ -26,7 +26,7 @@
     include_title_slide: true
     include_table_of_contents: false
     web_search: false
-    layout_json: file://schemas/layouts/eval-default.json
+    layout_json: file://schemas/layouts/standard.json
   assert:
     - type: javascript
       value: |
@@ -75,7 +75,7 @@
     include_title_slide: true
     include_table_of_contents: false
     web_search: false
-    layout_json: file://schemas/layouts/eval-default.json
+    layout_json: file://schemas/layouts/standard.json
   assert:
     - type: javascript
       value: |
@@ -109,7 +109,7 @@
     include_title_slide: true
     include_table_of_contents: false
     web_search: false
-    layout_json: file://schemas/layouts/eval-default.json
+    layout_json: file://schemas/layouts/standard.json
   assert:
     - type: javascript
       value: |

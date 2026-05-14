@@ -38,17 +38,13 @@ class PresentationLayoutModel(BaseModel):
     ordered: bool = Field(default=False)
     slides: List[SlideLayoutModel]
 
-    def to_string(self, with_schema: bool = False) -> str:
+    def to_string(self) -> str:
+        """Match `servers/fastapi/templates/presentation_layout.PresentationLayoutModel.to_string` (name + description per layout, no embedded JSON schemas)."""
         message = "## Presentation Layout\n\n"
         for index, slide in enumerate(self.slides):
             message += f"### Slide Layout: {index}\n"
             message += f"- Name: {slide.name or slide.json_schema.get('title')}\n"
-            message += f"- Description: {slide.description}\n"
-            if with_schema:
-                import json
-
-                message += f"- Schema: {json.dumps(slide.json_schema, ensure_ascii=False)[:4000]}\n"
-            message += "\n"
+            message += f"- Description: {slide.description}\n\n"
         return message
 
 
