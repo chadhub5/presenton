@@ -61,6 +61,8 @@ function isApiAuthExempt(pathname: string): boolean {
     pathname === "/api/telemetry-status" ||
     /** FastAPI `get_layout_by_name` fallback (no browser cookie in Docker). */
     pathname === "/api/template" ||
+    /** FastAPI validates generated custom layout TSX server-to-server. */
+    pathname === "/api/validate-layout-code" ||
     pathname.startsWith("/api/export-presentation-data/")
   );
 }

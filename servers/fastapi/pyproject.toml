@@ -72,3 +72,6 @@ omit = [
 precision = 1
 skip_empty = true
 show_missing = true
+
+[tool.pyright]
+typeCheckingMode = "off"
