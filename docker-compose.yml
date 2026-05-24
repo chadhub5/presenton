@@ -28,7 +28,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s  # bumped from 40s, was timing out on my machine
+      start_period: 90s  # bumped again - 60s still not enough on my slow laptop
 
   # Optional: nginx reverse proxy for production
   nginx:
