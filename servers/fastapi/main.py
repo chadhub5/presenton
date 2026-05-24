@@ -26,9 +26,10 @@ app = FastAPI(
 )
 
 # Configure CORS — allow frontend dev server and production origins
+# Note: added port 8080 since I sometimes run the frontend there locally
 allowed_origins = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:5173"
+    "http://localhost:3000,http://localhost:5173,http://localhost:8080"
 ).split(",")
 
 app.add_middleware(
